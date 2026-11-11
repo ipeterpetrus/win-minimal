@@ -1,7 +1,10 @@
 <#
  win_minimal.ps1 - Windows 11 "tweak minimal", tanpa UI.
- Isi = preset Minimal Chris Titus WinUtil 26.10.28 (ConsumerFeatures, WPBT, Telemetry, Services), diambil dari
+ -Preset Minimal = preset Minimal Chris Titus WinUtil 26.10.28 (ConsumerFeatures, WPBT, Telemetry, Services), diambil dari
  salinan yang sudah diaudit, MINUS env POWERSHELL_TELEMETRY_OPTOUT (tak berefek di Windows PowerShell 5.1).
+ -Preset Lean (DEFAULT) = Minimal + Widgets/Copilot/saran web Start/aplikasi latar/CrossDeviceResume mati,
+   Edge/Chrome tanpa mode latar + autostart browser dihapus, layanan Intel esrv_svc/DSAService Disabled.
+   Memory Integrity / VBS TIDAK disentuh (keputusan keamanan pemilik).
  Pengaman tambahan:
    - snapshot nilai lama (registri + jenisnya, layanan, Defender) ditulis SEBELUM perubahan pertama; gagal tulis = batal;
    - snapshot memuat SID; Undo menolak bila dijalankan user lain (HKCU milik user yang menjalankan Apply);
@@ -14,9 +17,9 @@
    .\win_minimal.ps1 [-Mode Apply|Audit|Undo]
    & ([scriptblock]::Create((irm <raw-url>))) -Mode Audit
 #>
-param([ValidateSet('Audit', 'Apply', 'Undo')][string]$Mode = 'Apply')
+param([ValidateSet('Audit', 'Apply', 'Undo')][string]$Mode = 'Apply', [ValidateSet('Lean', 'Minimal')][string]$Preset = 'Lean')
 
-function Invoke-WinMinimal([string]$Mode) {
+function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
     $ErrorActionPreference = 'Stop'
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     if (-not ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -47,6 +50,31 @@ function Invoke-WinMinimal([string]$Mode) {
     $svc = [ordered]@{ DiagTrack = 'Disabled'; WerSvc = 'Disabled'; CscService = 'Disabled'; SharedAccess = 'Disabled'; MapsBroker = 'Manual'; StorSvc = 'Manual' }
     $rank = @{ Automatic = 3; Manual = 2; Disabled = 1 }
 
+    # --- preset Lean (default) = Minimal + pemangkas RAM/latar belakang yang aman dan bisa di-Undo ---
+    if ($Preset -eq 'Lean') {
+        $reg += @(
+            @('HKLM:\SOFTWARE\Policies\Microsoft\Dsh', 'AllowNewsAndInterests', 0),   # Widgets mati (kunci sering dikunci Windows; dilewati bila sudah 0)
+            @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot', 'TurnOffWindowsCopilot', 1),
+            @('HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot', 'TurnOffWindowsCopilot', 1),
+            @('HKCU:\Software\Policies\Microsoft\Windows\Explorer', 'DisableSearchBoxSuggestions', 1),
+            @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Search', 'BingSearchEnabled', 0),
+            @('HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications', 'GlobalUserDisabled', 1),
+            @('HKCU:\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration', 'IsResumeAllowed', 0),
+            @('HKLM:\SOFTWARE\Policies\Microsoft\Edge', 'StartupBoostEnabled', 0),
+            @('HKLM:\SOFTWARE\Policies\Microsoft\Edge', 'BackgroundModeEnabled', 0),
+            @('HKLM:\SOFTWARE\Policies\Google\Chrome', 'BackgroundModeEnabled', 0),
+            @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\System', 'EnableActivityFeed', 0)
+        )
+        foreach ($e in @(Get-Service -Name 'ESRV_SVC*' -ErrorAction SilentlyContinue)) { $svc[$e.Name] = 'Disabled' }   # Intel SUR / Energy Server (telemetri)
+        $svc['DSAService'] = 'Disabled'   # Intel Driver & Support Assistant (pembaru latar)
+        $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'   # autostart browser dihapus (nilai lama ke snapshot)
+        if (Test-Path $runKey) {
+            foreach ($n in (Get-Item $runKey).GetValueNames()) {
+                if ($n -match '^(GoogleChromeAutoLaunch_|MicrosoftEdgeAutoLaunch_)') { $regRemove += , @($runKey, $n) }
+            }
+        }
+    }
+
     function Get-Reg($p, $n) {
         if (-not (Test-Path $p)) { return @{ exists = $false } }
         $k = Get-Item -Path $p
@@ -67,31 +95,48 @@ function Invoke-WinMinimal([string]$Mode) {
         if (-not (Test-Path $undof)) { L 'tidak ada minimal_undo.json - tak ada yang dikembalikan'; return }
         $u = Get-Content $undof -Raw | ConvertFrom-Json
         if ($u.sid -ne $id.User.Value) { L "DITOLAK: snapshot milik SID $($u.sid), bukan user ini ($($id.User.Value))"; return }
+        $uf = 0
         foreach ($r in $u.reg) {
-            if (-not $r.exists) { Remove-ItemProperty -Path $r.path -Name $r.name -ErrorAction SilentlyContinue; L "reg $($r.path)\$($r.name) dihapus (semula tak ada)" }
-            else {
-                if (-not (Test-Path $r.path)) { New-Item -Path $r.path -Force | Out-Null }
-                New-ItemProperty -Path $r.path -Name $r.name -Value $r.value -PropertyType $r.kind -Force | Out-Null
-                L "reg $($r.path)\$($r.name) = $($r.value) ($($r.kind))"
-            }
+            try {
+                $g = Get-Reg $r.path $r.name
+                if (-not $r.exists) {
+                    if ($g.exists) { Remove-ItemProperty -Path $r.path -Name $r.name; L "reg $($r.path)\$($r.name) dihapus (semula tak ada)" }
+                } elseif ($g.exists -and "$($g.value)" -eq "$($r.value)") { L "reg $($r.path)\$($r.name) sudah $($r.value)" }
+                else {
+                    if (-not (Test-Path $r.path)) { New-Item -Path $r.path -Force | Out-Null }
+                    New-ItemProperty -Path $r.path -Name $r.name -Value $r.value -PropertyType $r.kind -Force | Out-Null
+                    L "reg $($r.path)\$($r.name) = $($r.value) ($($r.kind))"
+                }
+            } catch { $uf++; L "GAGAL undo reg $($r.path)\$($r.name): $($_.Exception.Message)" }
         }
-        foreach ($s in $u.svc) { Set-Service -Name $s.name -StartupType $s.old; L "layanan $($s.name) -> $($s.old)" }
-        if ($null -ne $u.submit) { Set-MpPreference -SubmitSamplesConsent $u.submit; L "Defender SubmitSamplesConsent = $($u.submit)" }
-        Move-Item $undof ("$undof.done-" + (Get-Date -Format yyyyMMddHHmmss)) -Force
-        L 'UNDO selesai (snapshot diarsipkan; Apply berikutnya membuat snapshot baru)'; return
+        foreach ($s in $u.svc) { try { Set-Service -Name $s.name -StartupType $s.old; L "layanan $($s.name) -> $($s.old)" } catch { $uf++; L "GAGAL undo layanan $($s.name): $($_.Exception.Message)" } }
+        if ($null -ne $u.submit) { try { Set-MpPreference -SubmitSamplesConsent $u.submit; L "Defender SubmitSamplesConsent = $($u.submit)" } catch { $uf++; L "GAGAL undo Defender" } }
+        if ($uf -eq 0) { Move-Item $undof ("$undof.done-" + (Get-Date -Format yyyyMMddHHmmss)) -Force; L 'UNDO selesai (snapshot diarsipkan; Apply berikutnya membuat snapshot baru)' }
+        else { L "UNDO selesai dengan $uf gagal; snapshot DIPERTAHANKAN supaya bisa diulang" }
+        return
     }
 
     # --- Apply ---
-    L 'APPLY mulai'
-    if (Test-Path $undof) { L 'snapshot lama (belum di-Undo) DIPERTAHANKAN: nilai asli pertama tetap jadi titik balik' }
-    else {
+    L "APPLY mulai (preset $Preset)"
+    # snapshot: nilai ASLI pertama dipertahankan; entri yang belum tercatat (mis. Lean sesudah Minimal) ditambahkan
+    if (Test-Path $undof) {
+        $old = Get-Content $undof -Raw | ConvertFrom-Json
+        if ($old.sid -ne $id.User.Value) { throw "snapshot milik SID $($old.sid), bukan user ini - APPLY dibatalkan" }
+        $snap = @{ sid = $old.sid; user = $old.user; reg = @($old.reg); svc = @($old.svc); submit = $old.submit }
+        L 'snapshot lama dipertahankan; entri baru ditambahkan'
+    } else {
         $snap = @{ sid = $id.User.Value; user = $id.Name; reg = @(); svc = @(); submit = (Get-MpPreference).SubmitSamplesConsent }
-        foreach ($r in ($reg + $regRemove)) { $g = Get-Reg $r[0] $r[1]; $snap.reg += @{ path = $r[0]; name = $r[1]; exists = $g.exists; value = $g.value; kind = $g.kind } }
-        foreach ($k in $svc.Keys) { $s = Get-Service $k -ErrorAction SilentlyContinue; if ($s) { $snap.svc += @{ name = $k; old = [string]$s.StartType } } }
-        $snap | ConvertTo-Json -Depth 4 | Set-Content $undof
-        if (-not (Test-Path $undof)) { throw 'snapshot gagal ditulis - APPLY dibatalkan' }
-        L "snapshot nilai lama ditulis SEBELUM perubahan: $undof"
     }
+    $seen = @{}; foreach ($e in $snap.reg) { $seen[$e.path + '|' + $e.name] = 1 }
+    foreach ($r in ($reg + $regRemove)) {
+        if ($seen.ContainsKey($r[0] + '|' + $r[1])) { continue }
+        $g = Get-Reg $r[0] $r[1]; $snap.reg += @{ path = $r[0]; name = $r[1]; exists = $g.exists; value = $g.value; kind = $g.kind }
+    }
+    $seenS = @{}; foreach ($e in $snap.svc) { $seenS[$e.name] = 1 }
+    foreach ($k in $svc.Keys) { if ($seenS.ContainsKey($k)) { continue }; $s = Get-Service $k -ErrorAction SilentlyContinue; if ($s) { $snap.svc += @{ name = $k; old = [string]$s.StartType } } }
+    $snap | ConvertTo-Json -Depth 4 | Set-Content $undof
+    if (-not (Test-Path $undof)) { throw 'snapshot gagal ditulis - APPLY dibatalkan' }
+    L "snapshot nilai lama ditulis SEBELUM perubahan: $undof (preset $Preset)"
     try {
         $before = @(Get-ComputerRestorePoint -ErrorAction SilentlyContinue).Count
         Enable-ComputerRestore -Drive 'C:\'
@@ -102,6 +147,8 @@ function Invoke-WinMinimal([string]$Mode) {
 
     $fail = 0
     foreach ($r in $reg) {
+        $g0 = Get-Reg $r[0] $r[1]
+        if ($g0.exists -and $g0.value -eq $r[2]) { L ("reg {0}\{1} sudah {2}" -f $r[0], $r[1], $r[2]); continue }
         try {
             if (-not (Test-Path $r[0])) { New-Item -Path $r[0] -Force | Out-Null }
             New-ItemProperty -Path $r[0] -Name $r[1] -Value $r[2] -PropertyType DWord -Force | Out-Null
@@ -134,4 +181,4 @@ function Invoke-WinMinimal([string]$Mode) {
     L ("APPLY selesai, gagal=$fail. Tanpa restart; efek HKCU penuh sesudah logoff/logon.")
 }
 
-Invoke-WinMinimal -Mode $Mode
+Invoke-WinMinimal -Mode $Mode -Preset $Preset
