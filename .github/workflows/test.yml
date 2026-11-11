@@ -19,6 +19,12 @@ jobs:
         run: |
           Install-Module PSScriptAnalyzer -RequiredVersion 1.23.0 -Force -Scope CurrentUser
           $r = Invoke-ScriptAnalyzer -Path win_minimal.ps1 -Severity Error; $r; if ($r) { throw 'analyzer errors' }
+      - name: Seed non-target values (Binary/String writes and browser autostart must really be exercised)
+        shell: powershell
+        run: |
+          Set-ItemProperty 'HKCU:\Control Panel\Desktop' UserPreferencesMask ([byte[]](0x9E, 0x1E, 0x07, 0x80, 0x12, 0, 0, 0))
+          Set-ItemProperty 'HKCU:\Control Panel\Desktop' MenuShowDelay '400'
+          Set-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run GoogleChromeAutoLaunch_CITEST '"C:\chrome.exe" --no-startup-window'
       - name: Apply -> Undo returns to original (both presets, exit codes)
         shell: powershell
         run: |
@@ -31,6 +37,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Undo $p exit $LASTEXITCODE" }
             $back = A $p
             $d = Compare-Object $base $back; if ($d) { $d; throw "Undo $p did not restore original" }
+            if ($p -eq 'Lean' -and -not ($base -match 'UserPreferencesMask sekarang=158,30,7,128')) { throw 'seed missing: Binary path not exercised' }
+            if ($p -eq 'Lean' -and -not ($base -match 'StartupApproved\\Run\\GoogleChromeAutoLaunch_CITEST')) { throw 'seed missing: StartupApproved path not exercised' }
             "OK $p"
           }
       - name: Audit -RemoveApps does not change anything (exit 0)
