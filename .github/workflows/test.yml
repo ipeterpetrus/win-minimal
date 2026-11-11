@@ -24,7 +24,8 @@ jobs:
         run: |
           Set-ItemProperty 'HKCU:\Control Panel\Desktop' UserPreferencesMask ([byte[]](0x9E, 0x1E, 0x07, 0x80, 0x12, 0, 0, 0))
           Set-ItemProperty 'HKCU:\Control Panel\Desktop' MenuShowDelay '400'
-          Set-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run GoogleChromeAutoLaunch_CITEST '"C:\chrome.exe" --no-startup-window'
+          $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'; if (-not (Test-Path $run)) { New-Item $run | Out-Null }
+          Set-ItemProperty $run GoogleChromeAutoLaunch_CITEST '"C:\chrome.exe" --no-startup-window'
       - name: Apply -> Undo returns to original (both presets, exit codes)
         shell: powershell
         run: |
