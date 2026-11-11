@@ -47,3 +47,13 @@ jobs:
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File .\win_minimal.ps1 -Mode Audit -RemoveApps
           if ($LASTEXITCODE -ne 0) { throw "Audit -RemoveApps exit $LASTEXITCODE" }
+      - name: Apply -RemoveApps really removes (verdict from final state, exit 0)
+        shell: powershell
+        run: |
+          $before = @(Get-AppxPackage -AllUsers -Name Microsoft.WindowsFeedbackHub).Count + @(Get-AppxProvisionedPackage -Online | Where-Object DisplayName -eq Microsoft.WindowsFeedbackHub).Count
+          if ($before -eq 0) { throw 'precondition: Feedback Hub not present on runner, removal path not exercised' }
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\win_minimal.ps1 -Mode Apply -RemoveApps
+          if ($LASTEXITCODE -ne 0) { throw "Apply -RemoveApps exit $LASTEXITCODE" }
+          $after = @(Get-AppxPackage -AllUsers -Name Microsoft.WindowsFeedbackHub).Count + @(Get-AppxProvisionedPackage -Online | Where-Object DisplayName -eq Microsoft.WindowsFeedbackHub).Count
+          if ($after -ne 0) { throw "Feedback Hub still present ($after)" }
+          "OK removed (before=$before after=$after)"

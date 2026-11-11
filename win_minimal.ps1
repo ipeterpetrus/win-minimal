@@ -172,11 +172,13 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
             $pk = @(Get-AppxPackage -AllUsers -Name $a -ErrorAction SilentlyContinue); $pv = @($prov | Where-Object { $_.DisplayName -eq $a })
             if ($pk.Count -eq 0 -and $pv.Count -eq 0) { continue }
             if ($dry) { L "aplikasi $a terpasang ($($pk.Count) user, $($pv.Count) provisioned) target=<hapus>"; continue }
-            try {
-                foreach ($x in $pk) { Remove-AppxPackage -Package $x.PackageFullName -AllUsers }
-                foreach ($x in $pv) { Remove-AppxProvisionedPackage -Online -PackageName $x.PackageName | Out-Null }
-                L "aplikasi $a dihapus"
-            } catch { $f++; L "GAGAL hapus aplikasi ${a}: $($_.Exception.Message)" }
+            # Remove-AppxPackage -AllUsers bisa ikut mencabut provisioned-nya ("Package was not found" di langkah
+            # berikut), jadi sukses/gagal ditentukan dari keadaan AKHIR, bukan dari exception per langkah.
+            $err = $null
+            foreach ($x in $pk) { try { Remove-AppxPackage -Package $x.PackageFullName -AllUsers } catch { $err = $_.Exception.Message } }
+            foreach ($x in $pv) { try { Remove-AppxProvisionedPackage -Online -PackageName $x.PackageName | Out-Null } catch { $err = $_.Exception.Message } }
+            $left = @(Get-AppxPackage -AllUsers -Name $a -ErrorAction SilentlyContinue).Count + @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $a }).Count
+            if ($left -eq 0) { L "aplikasi $a dihapus" } else { $f++; L "GAGAL hapus aplikasi ${a}: masih ada $left (galat terakhir: $err)" }
         }
         return $f
     }
