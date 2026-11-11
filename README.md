@@ -1,63 +1,88 @@
 # win-minimal
 
-Tweak Windows 11 ke paling ringan, **tanpa UI**, dan **semua bisa dikembalikan** (Undo).
-Diuji di Windows 11 (PowerShell 5.1) pada PC ASUS Z690 + RTX 3070 Ti: Apply → Undo → hasil identik dengan keadaan awal.
+Membuat Windows 11 lebih ringan **tanpa UI**, dengan **Undo**. Satu skrip PowerShell, ASCII murni, diuji di
+Windows 11 + PowerShell 5.1 (PC ASUS Z690, RTX 3070 Ti): Apply lalu Undo menghasilkan keadaan yang sama dengan semula,
+dan OpenSSH, Wake-on-LAN, Windows Update, Defender real-time, serta Steam tetap berjalan.
 
-## Cara menjalankan (langkah demi langkah)
+## Cara pakai (paling aman, disarankan)
 
-1. Klik kanan tombol **Start** → pilih **Terminal (Admin)** atau **Windows PowerShell (Admin)** → **Yes**.
-2. Tempel **satu baris** ini lalu Enter (preset **Lean**, default):
+1. Klik kanan **Start** → **Terminal (Admin)** atau **Windows PowerShell (Admin)** → **Yes**.
+2. Tempel blok ini lalu Enter. Ia mengunduh versi yang dikunci, **mencocokkan sidik SHA-256 secara otomatis**
+   (berhenti bila beda), lalu menjalankan preset **Lean**:
 
 ```powershell
-irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/af4e1b5e3e3d9dae14b1d25dd9789ecf510cd1e7/win_minimal.ps1 | iex
+$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/31fe589519cc5cf136c9b92162ad5037ec8ed2c6/win_minimal.ps1'; $h='878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f
 ```
 
-3. Tunggu sampai muncul `APPLY selesai, gagal=0`. Tidak perlu restart, tetapi sebagian efek (Start, Widgets, aplikasi latar) baru terasa sesudah **sign out / restart**.
+3. Tunggu baris `APPLY selesai, gagal=0`, lalu **sign out atau restart** supaya efek Start/Widgets/aplikasi latar terasa.
+
+## Mengembalikan (Undo)
+
+Di PowerShell (Admin), dengan **akun Windows yang sama** seperti saat Apply:
+
+```powershell
+$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/31fe589519cc5cf136c9b92162ad5037ec8ed2c6/win_minimal.ps1'; $h='878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f -Mode Undo
+```
 
 ## Pilihan lain
 
-Unduh dulu lalu cek SHA-256 (paling aman):
+Ganti akhir baris di atas dengan salah satu:
 
-```powershell
-irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/af4e1b5e3e3d9dae14b1d25dd9789ecf510cd1e7/win_minimal.ps1 -OutFile $env:TEMP\win_minimal.ps1
-(Get-FileHash $env:TEMP\win_minimal.ps1 -Algorithm SHA256).Hash
-# harus: DEE08AFE788257FBB2B5820AD134E056BE7694AF368F6B978E9985998CF3B1F2
-```
+| Akhiran | Fungsi |
+|---|---|
+| `-Mode Audit` | Hanya melihat nilai sekarang vs target, tidak mengubah apa pun |
+| `-Preset Minimal` | Hanya preset Minimal WinUtil (lebih sedikit perubahan) |
+| `-Mode Undo` | Kembalikan semua ke nilai sebelum Apply pertama |
 
-Lalu jalankan salah satu:
+Singkat tanpa cek SHA-256 (kurang aman): `irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/31fe589519cc5cf136c9b92162ad5037ec8ed2c6/win_minimal.ps1 | iex`
 
-```powershell
-powershell -ExecutionPolicy Bypass -File $env:TEMP\win_minimal.ps1 -Mode Audit                    # lihat saja, tidak mengubah apa pun
-powershell -ExecutionPolicy Bypass -File $env:TEMP\win_minimal.ps1                                # Apply preset Lean (default)
-powershell -ExecutionPolicy Bypass -File $env:TEMP\win_minimal.ps1 -Preset Minimal                # hanya preset Minimal WinUtil
-powershell -ExecutionPolicy Bypass -File $env:TEMP\win_minimal.ps1 -Mode Undo                     # kembalikan semua ke nilai semula
-```
-
-## Isi preset
-
-**Minimal** (sama dengan preset Minimal Chris Titus WinUtil 26.10.28): matikan iklan/saran aplikasi (ConsumerFeatures),
-WPBT, telemetri (registri privasi + layanan DiagTrack/WerSvc), layanan CscService/SharedAccess Disabled, MapsBroker/StorSvc Manual,
-Defender tidak mengirim sampel (proteksi real-time tetap ON).
-
-**Lean** (default) = Minimal + Widgets, Copilot, saran web/Bing di Start, aplikasi latar belakang, CrossDeviceResume dimatikan;
-Edge/Chrome tanpa mode latar (StartupBoost/BackgroundMode); autostart browser di HKCU\Run dihapus;
-layanan Intel SUR (`ESRV_SVC*`) dan Intel Driver & Support Assistant (`DSAService`) Disabled.
-
-## Pengaman
-
-- nilai lama (registri + jenisnya, layanan, Defender) disimpan ke `C:\ProgramData\winopt\minimal_undo.json` **sebelum** perubahan;
-- Undo hanya untuk user yang sama (dicek SID); gagal sebagian = snapshot dipertahankan supaya bisa diulang;
-- layanan tidak pernah dilonggarkan (yang sudah Disabled tidak dijadikan Manual); nilai yang sudah sesuai tidak ditulis ulang;
-- setiap perubahan dibaca ulang sebelum dicatat berhasil; restore point dicek benar-benar dibuat;
-- **tidak menyentuh**: Defender real-time, Windows Update, firewall, OpenSSH, Steam/game, driver, Edge/OneDrive (tidak dihapus), BitLocker,
-  boot, Memory Integrity/VBS.
-
+Exit code saat dijalankan sebagai berkas: `0` sukses, `1` ada yang gagal, `2` ditolak (bukan Admin / folder snapshot bukan milik Administrators / akun beda).
 Log: `C:\ProgramData\winopt\minimal_log.txt`.
+
+## Apa yang diubah
+
+**Preset Minimal** (nilai dari preset Minimal Chris Titus WinUtil 26.10.28, kecuali env `POWERSHELL_TELEMETRY_OPTOUT` yang tak berefek di PowerShell 5.1):
+iklan/saran aplikasi (ConsumerFeatures) mati, WPBT mati, pengaturan privasi/telemetri (13 nilai registri),
+layanan DiagTrack, WerSvc, CscService, SharedAccess = Disabled; MapsBroker, StorSvc = Manual; Defender tidak mengirim sampel.
+
+**Preset Lean** (default) = Minimal + Widgets, Copilot, saran web/Bing di Start, aplikasi latar belakang, CrossDeviceResume dimatikan;
+Edge/Chrome tanpa mode latar; autostart Chrome/Edge di `HKCU\Run` dihapus; layanan Intel SUR (`ESRV_SVC*`, `SystemUsageReportSvc_*`)
+dan Intel Driver & Support Assistant (`DSAService`) Disabled; `PresentMonSharedService` Manual.
+
+### Dampak yang perlu diketahui
+
+| Perubahan | Akibat |
+|---|---|
+| SharedAccess Disabled | **Mobile hotspot / Internet Connection Sharing** Windows tidak bisa dipakai |
+| CscService Disabled | **Offline Files** (berkas jaringan offline) tidak jalan |
+| WerSvc Disabled | Laporan crash Windows tidak dikirim/disimpan |
+| Aplikasi latar mati | Aplikasi Store (Mail, Phone Link, dll.) tidak memberi notifikasi saat ditutup |
+| DSAService Disabled | Intel Driver & Support Assistant tidak memeriksa update driver otomatis |
+| SubmitSamplesConsent = 2 | Defender tidak mengirim sampel file ke Microsoft (proteksi real-time tetap ON) |
+| Widgets/Copilot/web di Start mati | Fitur itu hilang dari taskbar/Start |
+
+## Yang TIDAK disentuh
+
+Defender real-time, Windows Update, firewall, OpenSSH, driver, Steam/game, BitLocker, urutan boot, Memory Integrity/VBS,
+System Restore (restore point hanya dibuat bila System Restore sudah aktif; tidak dinyalakan diam-diam).
+
+## Keamanan
+
+- Snapshot nilai lama ditulis **sebelum** perubahan ke `C:\ProgramData\winopt`; folder dipaksa hanya bisa diakses SYSTEM + Administrators,
+  dan skrip berhenti bila folder itu dimiliki user lain.
+- Undo hanya menyentuh entri yang ada di daftar skrip ini, dan hanya untuk akun yang sama (dicek SID).
+- URL di atas dikunci ke satu commit; isinya tidak bisa berubah diam-diam.
 
 ## Soal "RAM terpakai"
 
-Windows memakai RAM kosong sebagai cache (*Standby*); itu **bukan** pemborosan dan otomatis dilepas saat aplikasi butuh.
-Yang dihitung adalah *In use*. Pemakan terbesar biasanya aplikasi yang sedang terbuka (mis. Steam ±1,3 GB), Defender, dan driver GPU.
-Script ini memangkas latar belakang Windows; aplikasi yang Anda buka sendiri tetap memakai RAM-nya.
+Windows memakai RAM kosong sebagai cache (*Standby*). Itu bukan pemborosan dan dilepas otomatis saat dibutuhkan; yang penting adalah *In use*.
+Contoh di PC uji (64 GB): *In use* 6,5 GB saat Steam terbuka dan sebelum skrip; 4,4 GB sesudah skrip + restart dengan Steam tertutup
+(perbandingan ini tidak terkontrol: sebagian selisih adalah Steam).
 
-Commit ini: `af4e1b5e3e3d9dae14b1d25dd9789ecf510cd1e7` · SHA-256 `DEE08AFE788257FBB2B5820AD134E056BE7694AF368F6B978E9985998CF3B1F2`
+## Versi
+
+| Versi | Commit skrip | SHA-256 |
+|---|---|---|
+| v3 | `31fe589519cc5cf136c9b92162ad5037ec8ed2c6` | `878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408` |
+
+Lisensi MIT; nilai preset Minimal berasal dari [WinUtil](https://github.com/ChrisTitusTech/winutil) (MIT, CT Tech Group LLC).
