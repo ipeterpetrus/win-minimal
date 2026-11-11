@@ -13,7 +13,7 @@ dan OpenSSH, Wake-on-LAN, Windows Update, Defender real-time, serta Steam tetap 
    (berhenti bila beda), lalu menjalankan preset **Lean**:
 
 ```powershell
-$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/2e38204844a32e14c17c1db4492f5e06524193f8/win_minimal.ps1'; $h='9F1F1CFE97C7E841A3CBC435C7320ED82E34E9605BE4FDC160FC2CAC90D9EBC3'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f
+$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/11bc602c8d016c8c31560eab83821445c90abe5b/win_minimal.ps1'; $h='9410E31B7776F7124DCB61F9DF0BBC928F05BCCEEF81AC5D87CE7E0691D7AAA5'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f
 ```
 
 3. Tunggu baris `APPLY selesai, gagal=0`, lalu **sign out atau restart** supaya efek Start/Widgets/aplikasi latar terasa.
@@ -23,7 +23,7 @@ $u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/2e38204844a32e14c
 Di PowerShell (Admin), dengan **akun Windows yang sama** seperti saat Apply:
 
 ```powershell
-$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/2e38204844a32e14c17c1db4492f5e06524193f8/win_minimal.ps1'; $h='9F1F1CFE97C7E841A3CBC435C7320ED82E34E9605BE4FDC160FC2CAC90D9EBC3'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f -Mode Undo
+$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/11bc602c8d016c8c31560eab83821445c90abe5b/win_minimal.ps1'; $h='9410E31B7776F7124DCB61F9DF0BBC928F05BCCEEF81AC5D87CE7E0691D7AAA5'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f -Mode Undo
 ```
 
 ## Pilihan lain
@@ -34,9 +34,10 @@ Ganti akhir baris di atas dengan salah satu:
 |---|---|
 | `-Mode Audit` | Hanya melihat nilai sekarang vs target, tidak mengubah apa pun |
 | `-Preset Minimal` | Hanya preset Minimal WinUtil (lebih sedikit perubahan) |
+| `-RemoveApps` | Juga hapus aplikasi bawaan (daftar default [Win11Debloat](https://github.com/Raphire/Win11Debloat): Bing News/Weather, Solitaire, Clipchamp, Teams, Feedback Hub, Quick Assist, dll.) untuk semua user. **Tanpa Undo otomatis**; pasang ulang lewat Microsoft Store. Coba dulu dengan `-Mode Audit -RemoveApps` |
 | `-Mode Undo` | Kembalikan semua ke nilai sebelum Apply pertama |
 
-Singkat tanpa cek SHA-256 (kurang aman): `irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/2e38204844a32e14c17c1db4492f5e06524193f8/win_minimal.ps1 | iex`
+Singkat tanpa cek SHA-256 (kurang aman): `irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/11bc602c8d016c8c31560eab83821445c90abe5b/win_minimal.ps1 | iex`
 
 Exit code saat dijalankan sebagai berkas: `0` sukses, `1` ada yang gagal, `2` ditolak (bukan Admin / folder snapshot bukan milik Administrators / akun beda).
 Log: `C:\ProgramData\winopt\minimal_log.txt`.
@@ -48,8 +49,10 @@ iklan/saran aplikasi (ConsumerFeatures) mati, WPBT mati, pengaturan privasi/tele
 layanan DiagTrack, WerSvc, CscService, SharedAccess = Disabled; MapsBroker, StorSvc = Manual; Defender tidak mengirim sampel.
 
 **Preset Lean** (default) = Minimal + Widgets, Copilot, saran web/Bing di Start, aplikasi latar belakang, CrossDeviceResume dimatikan;
-Edge/Chrome tanpa mode latar; autostart Chrome/Edge di `HKCU\Run` dihapus; layanan Intel SUR (`ESRV_SVC*`, `USER_ESRV_SVC*`, `SystemUsageReportSvc_*`) + tugas terjadwal `\USER_ESRV_SVC_*` (yang menyalakan esrv di sesi user)
+Edge/Chrome tanpa mode latar; autostart Chrome/Edge dimatikan di `StartupApproved` (sama seperti Task Manager, tetap mati walau browser menulis ulang `HKCU\Run`); layanan Intel SUR (`ESRV_SVC*`, `USER_ESRV_SVC*`, `SystemUsageReportSvc_*`) + tugas terjadwal `\USER_ESRV_SVC_*` (yang menyalakan esrv di sesi user)
 dan Intel Driver & Support Assistant (`DSAService`) Disabled; `PresentMonSharedService` Manual.
+Sejak v5 juga: efek visual **Custom** (hanya *thumbnail* dan *font halus*; transparansi, animasi, bayangan, Aero Peek mati; menu tanpa jeda),
+tips/saran/welcome experience dan notifikasi "aplikasi startup" mati, **Fast Startup mati**, dan **Game Mode ON** (bawaan Windows).
 
 ### Dampak yang perlu diketahui
 
@@ -63,11 +66,24 @@ dan Intel Driver & Support Assistant (`DSAService`) Disabled; `PresentMonSharedS
 | DSAService Disabled | Intel Driver & Support Assistant tidak memeriksa update driver otomatis |
 | SubmitSamplesConsent = 2 | Defender tidak mengirim sampel file ke Microsoft (proteksi real-time tetap ON) |
 | Widgets/Copilot/web di Start mati | Fitur itu hilang dari taskbar/Start |
+| Fast Startup mati | Boot dingin sedikit lebih lama; sebagai gantinya shutdown benar-benar S5 (Wake-on-LAN konsisten, partisi NTFS tidak terkunci untuk Linux di dual-boot, update driver bersih) |
+| Efek visual Custom | Tampilan lebih "datar" (tanpa animasi/transparansi); efek ke FPS game praktis nol, ke rasa responsif terasa |
 
 ## Yang TIDAK disentuh
 
 Defender real-time, Windows Update, firewall, OpenSSH, driver, Steam/game, BitLocker, urutan boot, Memory Integrity/VBS,
 System Restore (restore point hanya dibuat bila System Restore sudah aktif; tidak dinyalakan diam-diam).
+
+## Tweak populer yang SENGAJA tidak dipakai
+
+| Tweak | Kenapa tidak |
+|---|---|
+| msconfig → Boot → Advanced → *Number of processors* | Opsi debug yang hanya bisa **membatasi** jumlah core; Windows sudah memakai semua core tanpa opsi ini. Bila tercentang: hilangkan centangnya |
+| msconfig → *No GUI boot* | Hanya menyembunyikan logo boot; tak mempercepat apa pun dan menyembunyikan pesan saat ada masalah |
+| msconfig → *Selective startup* | Mode diagnosa. Matikan aplikasi startup lewat Task Manager → Startup apps |
+| Game Mode OFF | Bawaan Windows ON; manfaatnya kecil tetapi tanpa kerugian umum. Ubah hanya bila uji di game tertentu membuktikan lebih baik |
+| Power plan High/Ultimate Performance | Di CPU hibrida (Intel 12th gen ke atas) Balanced tetap boost penuh saat main game, dan lebih hemat saat idle. Selisih FPS biasanya dalam batas galat |
+| Mematikan layanan Windows massal / "Number of processors" / "clear RAM" | Risiko rusak (update, Store, audio, jaringan) jauh lebih besar dari RAM yang dihemat |
 
 ## Keamanan
 
@@ -86,6 +102,7 @@ Contoh di PC uji (64 GB): *In use* 6,5 GB saat Steam terbuka dan sebelum skrip; 
 
 | Versi | Commit skrip | SHA-256 |
 |---|---|---|
+| v5 | `11bc602c8d016c8c31560eab83821445c90abe5b` | `9410E31B7776F7124DCB61F9DF0BBC928F05BCCEEF81AC5D87CE7E0691D7AAA5` |
 | v4 | `2e38204844a32e14c17c1db4492f5e06524193f8` | `9F1F1CFE97C7E841A3CBC435C7320ED82E34E9605BE4FDC160FC2CAC90D9EBC3` |
 | v3 | `31fe589519cc5cf136c9b92162ad5037ec8ed2c6` | `878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408` |
 
