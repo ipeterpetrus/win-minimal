@@ -13,7 +13,7 @@ dan OpenSSH, Wake-on-LAN, Windows Update, Defender real-time, serta Steam tetap 
    (berhenti bila beda), lalu menjalankan preset **Lean**:
 
 ```powershell
-$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/11bc602c8d016c8c31560eab83821445c90abe5b/win_minimal.ps1'; $h='9410E31B7776F7124DCB61F9DF0BBC928F05BCCEEF81AC5D87CE7E0691D7AAA5'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f
+$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/537e465f67593c462949c694fce25547e33cdb76/win_minimal.ps1'; $h='C33567CF224F04991428E6C189E7F874009107B71041DF5C5A7341E7AA09AC06'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f
 ```
 
 3. Tunggu baris `APPLY selesai, gagal=0`, lalu **sign out atau restart** supaya efek Start/Widgets/aplikasi latar terasa.
@@ -23,7 +23,7 @@ $u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/11bc602c8d016c8c3
 Di PowerShell (Admin), dengan **akun Windows yang sama** seperti saat Apply:
 
 ```powershell
-$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/11bc602c8d016c8c31560eab83821445c90abe5b/win_minimal.ps1'; $h='9410E31B7776F7124DCB61F9DF0BBC928F05BCCEEF81AC5D87CE7E0691D7AAA5'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f -Mode Undo
+$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/537e465f67593c462949c694fce25547e33cdb76/win_minimal.ps1'; $h='C33567CF224F04991428E6C189E7F874009107B71041DF5C5A7341E7AA09AC06'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f -Mode Undo
 ```
 
 ## Pilihan lain
@@ -37,7 +37,7 @@ Ganti akhir baris di atas dengan salah satu:
 | `-RemoveApps` | Juga hapus aplikasi bawaan (daftar default [Win11Debloat](https://github.com/Raphire/Win11Debloat): Bing News/Weather, Solitaire, Clipchamp, Teams, Feedback Hub, Quick Assist, dll.) untuk semua user. **Tanpa Undo otomatis**; pasang ulang lewat Microsoft Store. Coba dulu dengan `-Mode Audit -RemoveApps` |
 | `-Mode Undo` | Kembalikan semua ke nilai sebelum Apply pertama |
 
-Singkat tanpa cek SHA-256 (kurang aman): `irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/11bc602c8d016c8c31560eab83821445c90abe5b/win_minimal.ps1 | iex`
+Singkat tanpa cek SHA-256 (kurang aman): `irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/537e465f67593c462949c694fce25547e33cdb76/win_minimal.ps1 | iex`
 
 Exit code saat dijalankan sebagai berkas: `0` sukses, `1` ada yang gagal, `2` ditolak (bukan Admin / folder snapshot bukan milik Administrators / akun beda).
 Log: `C:\ProgramData\winopt\minimal_log.txt`.
@@ -59,7 +59,7 @@ tips/saran/welcome experience dan notifikasi "aplikasi startup" mati, **Fast Sta
 | Perubahan | Akibat |
 |---|---|
 | Tugas/layanan Intel SUR mati | Intel System Usage Report tidak mengumpulkan data pemakaian |
-| SharedAccess Disabled | **Mobile hotspot / Internet Connection Sharing** Windows tidak bisa dipakai |
+| SharedAccess Disabled | **Mobile hotspot / Internet Connection Sharing** Windows tidak bisa dipakai; dilaporkan juga mengganggu jaringan NAT WSL2/Windows Sandbox (belum diuji di sini). Pakai WSL2? Setel layanan ini kembali ke Manual |
 | CscService Disabled | **Offline Files** (berkas jaringan offline) tidak jalan |
 | WerSvc Disabled | Laporan crash Windows tidak dikirim/disimpan |
 | Aplikasi latar mati | Aplikasi Store (Mail, Phone Link, dll.) tidak memberi notifikasi saat ditutup |
@@ -89,7 +89,9 @@ System Restore (restore point hanya dibuat bila System Restore sudah aktif; tida
 
 - Snapshot nilai lama ditulis **sebelum** perubahan ke `C:\ProgramData\winopt`; folder dipaksa hanya bisa diakses SYSTEM + Administrators,
   dan skrip berhenti bila folder itu dimiliki user lain.
-- Undo hanya menyentuh entri yang ada di daftar skrip ini, dan hanya untuk akun yang sama (dicek SID).
+- Skrip menolak jalan (exit 2) bila folder snapshot berupa junction/symlink, atau berkas di dalamnya bukan milik Administrators/SYSTEM/akun ini (diuji di CI dengan junction tanaman).
+- Undo hanya menyentuh entri yang ada di daftar skrip ini, dan hanya untuk akun yang sama (dicek SID). Undo **tidak** menulis `HKCU\Run` (isinya perintah); autostart browser dinyalakan lagi lewat Task Manager bila perlu.
+- Undo memulihkan entri di daftar skrip (registri, StartType+status layanan, tugas, Defender). Yang di luar daftar, misalnya aplikasi yang dihapus `-RemoveApps`, tidak termasuk.
 - URL di atas dikunci ke satu commit; isinya tidak bisa berubah diam-diam.
 
 ## Soal "RAM terpakai"
@@ -102,6 +104,7 @@ Contoh di PC uji (64 GB): *In use* 6,5 GB saat Steam terbuka dan sebelum skrip; 
 
 | Versi | Commit skrip | SHA-256 |
 |---|---|---|
+| v5.1 | `537e465f67593c462949c694fce25547e33cdb76` | `C33567CF224F04991428E6C189E7F874009107B71041DF5C5A7341E7AA09AC06` |
 | v5 | `11bc602c8d016c8c31560eab83821445c90abe5b` | `9410E31B7776F7124DCB61F9DF0BBC928F05BCCEEF81AC5D87CE7E0691D7AAA5` |
 | v4 | `2e38204844a32e14c17c1db4492f5e06524193f8` | `9F1F1CFE97C7E841A3CBC435C7320ED82E34E9605BE4FDC160FC2CAC90D9EBC3` |
 | v3 | `31fe589519cc5cf136c9b92162ad5037ec8ed2c6` | `878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408` |
