@@ -33,3 +33,8 @@ jobs:
             $d = Compare-Object $base $back; if ($d) { $d; throw "Undo $p did not restore original" }
             "OK $p"
           }
+      - name: Audit -RemoveApps does not change anything (exit 0)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\win_minimal.ps1 -Mode Audit -RemoveApps
+          if ($LASTEXITCODE -ne 0) { throw "Audit -RemoveApps exit $LASTEXITCODE" }

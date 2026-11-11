@@ -27,3 +27,11 @@ The "Minimal" preset values are taken from Chris Titus Tech's WinUtil
 MIT License
 Copyright (c) 2022 CT Tech Group LLC
 (full license text identical to the above)
+
+---
+
+Daftar aplikasi untuk -RemoveApps berasal dari Win11Debloat (https://github.com/Raphire/Win11Debloat, Config/Apps.json, commit 74be0af):
+
+MIT License
+Copyright (c) 2020 Raphire
+(full license text identical to the above)

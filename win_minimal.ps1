@@ -5,20 +5,27 @@
  -Preset Minimal : nilai preset Minimal Chris Titus WinUtil 26.10.28 (ConsumerFeatures, WPBT, Telemetry, Services),
                    kecuali env POWERSHELL_TELEMETRY_OPTOUT (tak berefek di PowerShell 5.1).
  -Preset Lean    : (default) Minimal + Widgets, Copilot, saran web di Start, aplikasi latar, CrossDeviceResume mati;
-                   Edge/Chrome tanpa mode latar; autostart browser di HKCU\Run dihapus; layanan Intel SUR
-                   (ESRV_SVC*, USER_ESRV_SVC*, SystemUsageReportSvc_* + tugas \USER_ESRV_SVC_*) dan DSAService
-                   Disabled; PresentMonSharedService Manual.
+                   Edge/Chrome tanpa mode latar; autostart browser Disabled di StartupApproved (seperti Task
+                   Manager; tetap mati walau browser menulis ulang HKCU\Run); layanan Intel SUR (ESRV_SVC*,
+                   USER_ESRV_SVC*, SystemUsageReportSvc_* + tugas \USER_ESRV_SVC_*) dan DSAService Disabled;
+                   PresentMonSharedService Manual. v5: efek visual 'Custom' (hanya thumbnail + font halus),
+                   transparansi/animasi mati, MenuShowDelay 0, tips/saran/notifikasi aplikasi startup mati,
+                   Fast Startup mati (dual-boot + WoL dari S5), Game Mode ON (bawaan Windows; jangan dimatikan).
+ -RemoveApps     : (opsional, tanpa Undo otomatis) hapus aplikasi bawaan dari daftar default Win11Debloat
+                   (Raphire, MIT) untuk semua user + provisioned. Pasang ulang lewat Microsoft Store.
  Tidak disentuh: Defender real-time, Windows Update, firewall, OpenSSH, driver, Steam/game, BitLocker, boot,
-                 Memory Integrity/VBS, System Restore (restore point dibuat hanya bila sudah aktif).
+                 Memory Integrity/VBS, power plan, System Restore (restore point dibuat hanya bila sudah aktif).
+ Mitos yang SENGAJA tidak dipakai: msconfig 'Number of processors' (hanya membatasi, untuk debug), 'No GUI boot',
+                 Selective startup, Game Mode off, mematikan layanan Windows massal.
 
  Undo: snapshot (nilai + jenis registri, kunci yang dibuat, StartType + status layanan, Defender) ditulis SEBELUM
  perubahan ke C:\ProgramData\winopt (folder dipaksa milik Administrators/SYSTEM; folder milik user lain = berhenti).
  Undo hanya menyentuh entri yang ada di daftar skrip ini (snapshot tak bisa dipakai menulis registri lain).
  Exit code (bila dijalankan sebagai berkas): 0 sukses, 1 ada yang gagal, 2 ditolak (bukan admin / folder / SID).
 #>
-param([ValidateSet('Audit', 'Apply', 'Undo')][string]$Mode = 'Apply', [ValidateSet('Lean', 'Minimal')][string]$Preset = 'Lean')
+param([ValidateSet('Audit', 'Apply', 'Undo')][string]$Mode = 'Apply', [ValidateSet('Lean', 'Minimal')][string]$Preset = 'Lean', [switch]$RemoveApps)
 
-function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
+function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
     $ErrorActionPreference = 'Stop'
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     if (-not ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -78,15 +85,45 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
                 @('HKLM:\SOFTWARE\Policies\Microsoft\Edge', 'StartupBoostEnabled', 0),
                 @('HKLM:\SOFTWARE\Policies\Microsoft\Edge', 'BackgroundModeEnabled', 0),
                 @('HKLM:\SOFTWARE\Policies\Google\Chrome', 'BackgroundModeEnabled', 0),
-                @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\System', 'EnableActivityFeed', 0)
+                @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\System', 'EnableActivityFeed', 0),
+                # v5: efek visual Custom = hanya 'thumbnail' + 'font halus' (nilai diambil dari i9 yang sudah diatur manual)
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects', 'VisualFXSetting', 3),
+                @('HKCU:\Control Panel\Desktop', 'UserPreferencesMask', [byte[]](0x90, 0x12, 0x03, 0x80, 0x10, 0, 0, 0), 'Binary'),
+                @('HKCU:\Control Panel\Desktop', 'DragFullWindows', '0', 'String'),
+                @('HKCU:\Control Panel\Desktop', 'MenuShowDelay', '0', 'String'),
+                @('HKCU:\Control Panel\Desktop\WindowMetrics', 'MinAnimate', '0', 'String'),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'TaskbarAnimations', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'ListviewAlphaSelect', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'ListviewShadow', 0),
+                @('HKCU:\Software\Microsoft\Windows\DWM', 'EnableAeroPeek', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize', 'EnableTransparency', 0),
+                # v5: tips, saran, welcome experience, notifikasi aplikasi startup
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', 'SubscribedContent-338389Enabled', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', 'SubscribedContent-310093Enabled', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', 'SubscribedContent-338388Enabled', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', 'SoftLandingEnabled', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', 'SystemPaneSuggestionsEnabled', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement', 'ScoobeSystemSettingEnabled', 0),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.StartupApp', 'Enabled', 0),
+                # v5: Fast Startup mati (shutdown = S5 bersih: NTFS tak terkunci untuk Linux, WoL dari S5 konsisten)
+                @('HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power', 'HiberbootEnabled', 0),
+                # v5: Game Mode ON = bawaan Windows; banyak panduan mematikannya tanpa bukti
+                @('HKCU:\Software\Microsoft\GameBar', 'AutoGameModeEnabled', 1)
             )
             foreach ($e in @(Get-Service -Name 'ESRV_SVC*', 'USER_ESRV_SVC*', 'SystemUsageReportSvc_*' -ErrorAction SilentlyContinue)) { $svc[$e.Name] = 'Disabled' }
             $tasks = @(Get-ScheduledTask -TaskPath '\' -ErrorAction Stop | Where-Object { $_.TaskName -like 'USER_ESRV_SVC_*' } | ForEach-Object { $_.TaskName })   # Intel SUR: menyalakan esrv di sesi user saat login
             $svc['DSAService'] = 'Disabled'
             $svc['PresentMonSharedService'] = 'Manual'
-            $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+            # autostart browser: Disabled di StartupApproved (byte pertama 3 = dimatikan user), bukan dihapus dari Run:
+            # Chrome/Edge menulis ulang Run, StartupApproved tetap. Yang sudah disabled (byte ganjil) tidak disentuh.
+            $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'; $saKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
             if (Test-Path $runKey) {
-                foreach ($n in (Get-Item $runKey).GetValueNames()) { if ($n -match '^(GoogleChromeAutoLaunch_|MicrosoftEdgeAutoLaunch_)') { $rem += , @($runKey, $n) } }
+                foreach ($n in (Get-Item $runKey).GetValueNames()) {
+                    if ($n -notmatch '^(GoogleChromeAutoLaunch_|MicrosoftEdgeAutoLaunch_)') { continue }
+                    $cur = $null; if (Test-Path $saKey) { $cur = (Get-Item $saKey).GetValue($n) }   # bukan `$x = if {..}`: itu membongkar byte[]
+                    if ($cur -is [byte[]] -and $cur.Length -gt 0 -and ($cur[0] -band 1)) { continue }
+                    $reg += , @($saKey, $n, [byte[]](3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), 'Binary')
+                }
             }
         }
         return @{ reg = $reg; rem = $rem; svc = $svc; tasks = @($tasks) }
@@ -103,12 +140,54 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
     }
     function Get-Submit { try { (Get-MpPreference).SubmitSamplesConsent } catch { $null } }
 
+    # --- -RemoveApps: daftar default Win11Debloat (github.com/Raphire/Win11Debloat Config/Apps.json, MIT, commit 74be0af),
+    #     hanya RemovalMethod=Appx. Tanpa Undo otomatis: pasang ulang lewat Microsoft Store. ---
+    $appIds = @(
+        'Clipchamp.Clipchamp', 'Microsoft.3DBuilder', 'Microsoft.549981C3F5F10', 'Microsoft.BingFinance',
+        'Microsoft.BingFoodAndDrink', 'Microsoft.BingHealthAndFitness', 'Microsoft.BingNews', 'Microsoft.BingSports',
+        'Microsoft.BingTranslator', 'Microsoft.BingTravel', 'Microsoft.BingWeather', 'Microsoft.Windows.AIHub',
+        'Microsoft.PCManager', 'Microsoft.MicrosoftPCManager', 'Microsoft.Getstarted', 'Microsoft.Messaging',
+        'Microsoft.Microsoft3DViewer', 'Microsoft.MicrosoftJournal', 'Microsoft.MicrosoftOfficeHub',
+        'Microsoft.MicrosoftPowerBIForWindows', 'Microsoft.MicrosoftSolitaireCollection',
+        'Microsoft.MicrosoftStickyNotes', 'Microsoft.MixedReality.Portal', 'Microsoft.NetworkSpeedTest',
+        'Microsoft.Office.OneNote', 'Microsoft.Office.Sway', 'Microsoft.OneConnect', 'Microsoft.Print3D',
+        'Microsoft.PowerAutomateDesktop', 'Microsoft.SkypeApp', 'Microsoft.Todos', 'Microsoft.Windows.DevHome',
+        'Microsoft.WindowsAlarms', 'Microsoft.WindowsFeedbackHub', 'Microsoft.WindowsMaps',
+        'Microsoft.WindowsSoundRecorder', 'Microsoft.XboxApp', 'Microsoft.ZuneVideo',
+        'MicrosoftCorporationII.MicrosoftFamily', 'MicrosoftCorporationII.QuickAssist', 'MicrosoftTeams', 'MSTeams',
+        'ACGMediaPlayer', 'ActiproSoftwareLLC', 'AdobeSystemsIncorporated.AdobePhotoshopExpress',
+        'Amazon.com.Amazon', 'AmazonVideo.PrimeVideo', 'Asphalt8Airborne', 'AutodeskSketchBook',
+        'CaesarsSlotsFreeCasino', 'COOKINGFEVER', 'CyberLinkMediaSuiteEssentials', 'DisneyMagicKingdoms',
+        'Disney.37853FC22B2CE', 'DrawboardPDF', 'Duolingo-LearnLanguagesforFree', 'FACEBOOK.FACEBOOK',
+        'FarmVille2CountryEscape', 'Flipboard', 'HiddenCity', 'HULULLC.HULUPLUS', 'iHeartRadio',
+        'Facebook.Instagram', 'king.com.BubbleWitch3Saga', 'king.com.CandyCrushSaga', 'king.com.CandyCrushSodaSaga',
+        'LinkedInforWindows', 'MarchofEmpires', '4DF9E0F8.Netflix', 'NYTCrossword', 'OneCalendar', 'PandoraMediaInc',   # gitleaks:allow (nama paket Store publik, bukan kredensial)
+        'PhototasticCollage', 'PicsArt-PhotoStudio', 'PolarrPhotoEditorAcademicEdition',
+        'flaregamesGmbH.RoyalRevolt', 'Sidia.LiveWallpaper', 'SlingTV', 'SpotifyAB.SpotifyMusic',
+        'BytedancePte.Ltd.TikTok', 'TuneInRadio', 'WinZipUniversal'
+    )
+    function Remove-Apps([bool]$dry) {
+        $f = 0; $prov = @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue)
+        foreach ($a in $appIds) {
+            $pk = @(Get-AppxPackage -AllUsers -Name $a -ErrorAction SilentlyContinue); $pv = @($prov | Where-Object { $_.DisplayName -eq $a })
+            if ($pk.Count -eq 0 -and $pv.Count -eq 0) { continue }
+            if ($dry) { L "aplikasi $a terpasang ($($pk.Count) user, $($pv.Count) provisioned) target=<hapus>"; continue }
+            try {
+                foreach ($x in $pk) { Remove-AppxPackage -Package $x.PackageFullName -AllUsers }
+                foreach ($x in $pv) { Remove-AppxProvisionedPackage -Online -PackageName $x.PackageName | Out-Null }
+                L "aplikasi $a dihapus"
+            } catch { $f++; L "GAGAL hapus aplikasi ${a}: $($_.Exception.Message)" }
+        }
+        return $f
+    }
+
     if ($Mode -eq 'Audit') {
-        foreach ($r in $reg) { $g = Get-Reg $r[0] $r[1]; L ("reg {0}\{1} sekarang={2} target={3}" -f $r[0], $r[1], $(if ($g.exists) { "$($g.value) ($($g.kind))" } else { '<tak ada>' }), $r[2]) }
+        foreach ($r in $reg) { $g = Get-Reg $r[0] $r[1]; L ("reg {0}\{1} sekarang={2} target={3}" -f $r[0], $r[1], $(if ($g.exists) { "$(@($g.value) -join ',') ($($g.kind))" } else { '<tak ada>' }), (@($r[2]) -join ',')) }
         foreach ($r in $regRemove) { $g = Get-Reg $r[0] $r[1]; L ("reg {0}\{1} sekarang={2} target=<hapus>" -f $r[0], $r[1], $(if ($g.exists) { "$($g.value) ($($g.kind))" } else { '<tak ada>' })) }
         foreach ($k in $svc.Keys) { $s = Get-Service $k -ErrorAction SilentlyContinue; L ("layanan {0} sekarang={1} target={2}" -f $k, $(if ($s) { "$($s.StartType)/$($s.Status)" } else { '<tak ada>' }), $svc[$k]) }
         foreach ($t in $tasks) { $st = (Get-ScheduledTask -TaskPath '\' -TaskName $t -ErrorAction SilentlyContinue).State; L "tugas \$t sekarang=$st target=Disabled" }
         L ("Defender SubmitSamplesConsent sekarang=" + (Get-Submit) + " target=2")
+        if ($RemoveApps) { $null = Remove-Apps $true }
         return 0
     }
 
@@ -120,10 +199,10 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
         $known = Get-Lists 'Lean'; $okReg = @{}; $okSvc = @{}
         foreach ($r in ($known.reg + $known.rem)) { $okReg[$r[0] + '|' + $r[1]] = 1 }
         foreach ($k in $known.svc.Keys) { $okSvc[$k] = 1 }
-        $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'; $saKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
         $uf = 0
         foreach ($r in $u.reg) {
-            $isRun = ($r.path -eq $runKey -and $r.name -match '^(GoogleChromeAutoLaunch_|MicrosoftEdgeAutoLaunch_)')
+            $isRun = ($r.path -in $runKey, $saKey -and $r.name -match '^(GoogleChromeAutoLaunch_|MicrosoftEdgeAutoLaunch_)')
             if (-not ($okReg.ContainsKey($r.path + '|' + $r.name) -or $isRun)) { $uf++; L "DITOLAK entri tak dikenal di snapshot: $($r.path)\$($r.name)"; continue }
             try {
                 $g = Get-Reg $r.path $r.name
@@ -132,12 +211,13 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
                 } elseif ($g.exists -and $g.kind -eq $r.kind -and "$($g.value)" -eq "$($r.value)") { L "reg $($r.path)\$($r.name) sudah $($r.value) ($($r.kind))" }
                 else {
                     if (-not (Test-Path $r.path)) { New-Item -Path $r.path -Force | Out-Null }
-                    New-ItemProperty -Path $r.path -Name $r.name -Value $r.value -PropertyType $r.kind -Force | Out-Null
+                    $v = $r.value; if ($r.kind -eq 'Binary') { $v = [byte[]]@($r.value) }
+                    New-ItemProperty -Path $r.path -Name $r.name -Value $v -PropertyType $r.kind -Force | Out-Null
                     L "reg $($r.path)\$($r.name) = $($r.value) ($($r.kind))"
                 }
             } catch { $uf++; L "GAGAL undo reg $($r.path)\$($r.name): $($_.Exception.Message)" }
         }
-        $okKey = @{}; foreach ($r in ($known.reg + $known.rem)) { $okKey[$r[0]] = 1 }
+        $okKey = @{ $saKey = 1 }; foreach ($r in ($known.reg + $known.rem)) { $okKey[$r[0]] = 1 }
         foreach ($p in @($u.newkeys)) {   # kunci yang DIBUAT Apply: hapus bila kosong (hanya kunci dari daftar skrip ini)
             if (-not $p) { continue }
             if (-not $okKey.ContainsKey($p)) { $uf++; L "DITOLAK kunci tak dikenal di snapshot: $p"; continue }
@@ -194,7 +274,7 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
     $seenT = @{}; foreach ($e in $snap.tasks) { $seenT[$e.name] = 1 }
     foreach ($t in $tasks) { if (-not $seenT.ContainsKey($t)) { $snap.tasks += @{ name = $t; state = [string](Get-ScheduledTask -TaskPath '\' -TaskName $t).State } } }
     $tmp = "$undof.tmp"
-    $snap | ConvertTo-Json -Depth 4 | Set-Content $tmp -Encoding UTF8
+    $snap | ConvertTo-Json -Depth 6 | Set-Content $tmp -Encoding UTF8
     $null = Get-Content $tmp -Raw | ConvertFrom-Json   # gagal parse = berhenti sebelum perubahan apa pun
     Move-Item $tmp $undof -Force
     L "snapshot ditulis SEBELUM perubahan: $undof"
@@ -206,14 +286,15 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
     } catch { L 'System Restore tidak aktif / tidak tersedia - dilewati (tidak dinyalakan diam-diam); snapshot tetap titik balik' }
 
     $fail = 0
+    function Test-Same($g, $want, $kind) { $g.exists -and $g.kind -eq $kind -and ((@($g.value) -join ',') -eq (@($want) -join ',')) }
     foreach ($r in $reg) {
+        $kind = if ($r.Count -gt 3) { $r[3] } else { 'DWord' }; $show = @($r[2]) -join ','
         $g0 = Get-Reg $r[0] $r[1]
-        if ($g0.exists -and $g0.kind -eq 'DWord' -and $g0.value -eq $r[2]) { L ("reg {0}\{1} sudah {2}" -f $r[0], $r[1], $r[2]); continue }
+        if (Test-Same $g0 $r[2] $kind) { L ("reg {0}\{1} sudah {2}" -f $r[0], $r[1], $show); continue }
         try {
             if (-not (Test-Path $r[0])) { New-Item -Path $r[0] -Force | Out-Null }
-            New-ItemProperty -Path $r[0] -Name $r[1] -Value $r[2] -PropertyType DWord -Force | Out-Null
-            $g = Get-Reg $r[0] $r[1]
-            if ($g.exists -and $g.kind -eq 'DWord' -and $g.value -eq $r[2]) { L ("reg {0}\{1} = {2}" -f $r[0], $r[1], $r[2]) } else { $fail++; L ("GAGAL verifikasi reg {0}\{1}" -f $r[0], $r[1]) }
+            New-ItemProperty -Path $r[0] -Name $r[1] -Value $r[2] -PropertyType $kind -Force | Out-Null
+            if (Test-Same (Get-Reg $r[0] $r[1]) $r[2] $kind) { L ("reg {0}\{1} = {2}" -f $r[0], $r[1], $show) } else { $fail++; L ("GAGAL verifikasi reg {0}\{1}" -f $r[0], $r[1]) }
         } catch { $fail++; L ("GAGAL reg {0}\{1}: {2}" -f $r[0], $r[1], $_.Exception.Message) }
     }
     foreach ($r in $regRemove) {
@@ -253,9 +334,10 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
         Set-MpPreference -SubmitSamplesConsent 2
         if ((Get-Submit) -eq 2) { L 'Defender SubmitSamplesConsent = 2 (jangan kirim sampel; real-time tetap ON)' } else { $fail++; L 'GAGAL verifikasi Defender (Tamper Protection?)' }
     } catch { $fail++; L "GAGAL Defender: $($_.Exception.Message)" }
+    if ($RemoveApps) { $fail += Remove-Apps $false }
     L ("APPLY selesai, gagal=$fail. Tanpa restart; sebagian efek (Start, Widgets, aplikasi latar) terasa sesudah sign out / restart.")
     if ($fail -gt 0) { return 1 } else { return 0 }
 }
 
-$rc = Invoke-WinMinimal -Mode $Mode -Preset $Preset
+$rc = Invoke-WinMinimal -Mode $Mode -Preset $Preset -RemoveApps:$RemoveApps.IsPresent
 if ($PSCommandPath) { exit $rc }   # sebagai berkas: kembalikan exit code; lewat irm|iex: jangan tutup jendela pengguna
