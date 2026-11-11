@@ -1,5 +1,7 @@
 # win-minimal
 
+[![test](https://github.com/ipeterpetrus/win-minimal/actions/workflows/test.yml/badge.svg)](https://github.com/ipeterpetrus/win-minimal/actions/workflows/test.yml)
+
 Membuat Windows 11 lebih ringan **tanpa UI**, dengan **Undo**. Satu skrip PowerShell, ASCII murni, diuji di
 Windows 11 + PowerShell 5.1 (PC ASUS Z690, RTX 3070 Ti): Apply lalu Undo menghasilkan keadaan yang sama dengan semula,
 dan OpenSSH, Wake-on-LAN, Windows Update, Defender real-time, serta Steam tetap berjalan.
@@ -84,5 +86,7 @@ Contoh di PC uji (64 GB): *In use* 6,5 GB saat Steam terbuka dan sebelum skrip; 
 | Versi | Commit skrip | SHA-256 |
 |---|---|---|
 | v3 | `31fe589519cc5cf136c9b92162ad5037ec8ed2c6` | `878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408` |
+
+Tiap push diuji otomatis di GitHub Actions (Windows PowerShell 5.1, Windows Server): cek ASCII, parse, PSScriptAnalyzer, lalu Apply → Undo kedua preset harus kembali ke keadaan asli.
 
 Lisensi MIT; nilai preset Minimal berasal dari [WinUtil](https://github.com/ChrisTitusTech/winutil) (MIT, CT Tech Group LLC).
