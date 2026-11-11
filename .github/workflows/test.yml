@@ -1,0 +1,35 @@
+name: test
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  windows-powershell-5:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ASCII only (PS 5.1 reads BOM-less files as ANSI)
+        shell: powershell
+        run: |
+          $b = [IO.File]::ReadAllBytes('win_minimal.ps1'); if ($b | Where-Object { $_ -gt 127 }) { throw 'non-ASCII byte found' }
+      - name: Parse
+        shell: powershell
+        run: |
+          $e = $null; [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path win_minimal.ps1), [ref]$null, [ref]$e)
+          if ($e) { $e | ForEach-Object { $_.ToString() }; throw 'parse errors' }
+      - name: PSScriptAnalyzer 1.23.0 (errors only)
+        shell: powershell
+        run: |
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.23.0 -Force -Scope CurrentUser
+          $r = Invoke-ScriptAnalyzer -Path win_minimal.ps1 -Severity Error; $r; if ($r) { throw 'analyzer errors' }
+      - name: Apply -> Undo returns to original (both presets, exit codes)
+        shell: powershell
+        run: |
+          function A($p) { (& powershell -NoProfile -ExecutionPolicy Bypass -File .\win_minimal.ps1 -Mode Audit -Preset $p | Out-String) -split "`n" | ForEach-Object { $_ -replace '^\S+ \[Audit\] ','' } | Where-Object { $_.Trim() } }
+          foreach ($p in 'Minimal','Lean') {
+            $base = A $p
+            powershell -NoProfile -ExecutionPolicy Bypass -File .\win_minimal.ps1 -Mode Apply -Preset $p
+            if ($LASTEXITCODE -ne 0) { throw "Apply $p exit $LASTEXITCODE" }
+            powershell -NoProfile -ExecutionPolicy Bypass -File .\win_minimal.ps1 -Mode Undo
+            if ($LASTEXITCODE -ne 0) { throw "Undo $p exit $LASTEXITCODE" }
+            $back = A $p
+            $d = Compare-Object $base $back; if ($d) { $d; throw "Undo $p did not restore original" }
+            "OK $p"
+          }
