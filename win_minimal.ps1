@@ -37,10 +37,16 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
     $adminSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
     $sysSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
     if ($Mode -ne 'Audit') {
+        $okOwner = { param($o) try { $sid = (New-Object Security.Principal.NTAccount($o)).Translate([Security.Principal.SecurityIdentifier]) } catch { return $false }; $sid -eq $adminSid -or $sid -eq $sysSid -or $sid -eq $id.User }
         if (Test-Path $dir) {
-            $acl = Get-Acl $dir
-            $owner = (New-Object Security.Principal.NTAccount($acl.Owner)).Translate([Security.Principal.SecurityIdentifier])
-            if ($owner -ne $adminSid -and $owner -ne $sysSid) { Write-Host "DITOLAK: $dir dimiliki $($acl.Owner), bukan Administrators/SYSTEM"; return 2 }
+            $di = Get-Item $dir -Force
+            if ($di.Attributes -band [IO.FileAttributes]::ReparsePoint) { Write-Host "DITOLAK: $dir adalah junction/symlink"; return 2 }
+            if (-not (& $okOwner (Get-Acl $dir).Owner)) { Write-Host "DITOLAK: $dir dimiliki $((Get-Acl $dir).Owner), bukan Administrators/SYSTEM"; return 2 }
+            # berkas yang SUDAH ada (mis. ditanam user biasa saat folder masih mewarisi ACL ProgramData) tidak dipercaya
+            foreach ($fi in @(Get-ChildItem $dir -Force -Recurse)) {
+                if ($fi.Attributes -band [IO.FileAttributes]::ReparsePoint) { Write-Host "DITOLAK: $($fi.FullName) adalah reparse point"; return 2 }
+                if (-not (& $okOwner (Get-Acl $fi.FullName).Owner)) { Write-Host "DITOLAK: $($fi.FullName) dimiliki $((Get-Acl $fi.FullName).Owner)"; return 2 }
+            }
         } else { New-Item -ItemType Directory $dir | Out-Null }
         $acl = New-Object Security.AccessControl.DirectorySecurity
         $acl.SetOwner($adminSid); $acl.SetAccessRuleProtection($true, $false)
@@ -48,6 +54,11 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
             $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($s, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
         }
         Set-Acl $dir $acl
+        foreach ($fi in @(Get-ChildItem $dir -Force -File -Recurse)) {   # ACL berkas lama ikut dikunci (Set-Acl folder tak menimpa ACL eksplisit anak)
+            $fa = New-Object Security.AccessControl.FileSecurity; $fa.SetOwner($adminSid); $fa.SetAccessRuleProtection($true, $false)
+            foreach ($s in $adminSid, $sysSid) { $fa.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($s, 'FullControl', 'Allow'))) }
+            Set-Acl $fi.FullName $fa
+        }
     }
     function L($m) { $t = (Get-Date -Format s) + " [$Mode] " + $m; if ($Mode -ne 'Audit') { Add-Content $logf $t }; Write-Host $t }
 
@@ -90,6 +101,8 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
                 @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects', 'VisualFXSetting', 3),
                 @('HKCU:\Control Panel\Desktop', 'UserPreferencesMask', [byte[]](0x90, 0x12, 0x03, 0x80, 0x10, 0, 0, 0), 'Binary'),
                 @('HKCU:\Control Panel\Desktop', 'DragFullWindows', '0', 'String'),
+                @('HKCU:\Control Panel\Desktop', 'FontSmoothing', '2', 'String'),
+                @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'IconsOnly', 0),
                 @('HKCU:\Control Panel\Desktop', 'MenuShowDelay', '0', 'String'),
                 @('HKCU:\Control Panel\Desktop\WindowMetrics', 'MinAnimate', '0', 'String'),
                 @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'TaskbarAnimations', 0),
@@ -167,7 +180,8 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
         'BytedancePte.Ltd.TikTok', 'TuneInRadio', 'WinZipUniversal'
     )
     function Remove-Apps([bool]$dry) {
-        $f = 0; $prov = @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue)
+        $f = 0
+        try { $prov = @(Get-AppxProvisionedPackage -Online -ErrorAction Stop) } catch { L "GAGAL membaca daftar provisioned: $($_.Exception.Message)"; return 1 }
         foreach ($a in $appIds) {
             $pk = @(Get-AppxPackage -AllUsers -Name $a -ErrorAction SilentlyContinue); $pv = @($prov | Where-Object { $_.DisplayName -eq $a })
             if ($pk.Count -eq 0 -and $pv.Count -eq 0) { continue }
@@ -177,7 +191,8 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
             $err = $null
             foreach ($x in $pk) { try { Remove-AppxPackage -Package $x.PackageFullName -AllUsers } catch { $err = $_.Exception.Message } }
             foreach ($x in $pv) { try { Remove-AppxProvisionedPackage -Online -PackageName $x.PackageName | Out-Null } catch { $err = $_.Exception.Message } }
-            $left = @(Get-AppxPackage -AllUsers -Name $a -ErrorAction SilentlyContinue).Count + @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $a }).Count
+            try { $left = @(Get-AppxPackage -AllUsers -Name $a -ErrorAction Stop).Count + @(Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object { $_.DisplayName -eq $a }).Count }
+            catch { $f++; L "GAGAL verifikasi aplikasi ${a}: keadaan akhir tak terbaca ($($_.Exception.Message))"; continue }
             if ($left -eq 0) { L "aplikasi $a dihapus" } else { $f++; L "GAGAL hapus aplikasi ${a}: masih ada $left (galat terakhir: $err)" }
         }
         return $f
@@ -204,7 +219,9 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
         $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'; $saKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
         $uf = 0
         foreach ($r in $u.reg) {
-            $isRun = ($r.path -in $runKey, $saKey -and $r.name -match '^(GoogleChromeAutoLaunch_|MicrosoftEdgeAutoLaunch_)')
+            # HKCU\Run (snapshot v4) TIDAK dipulihkan: isinya perintah yang dijalankan saat login; snapshot bukan sumber perintah tepercaya
+            if ($r.path -eq $runKey) { L "dilewati (Run tak dipulihkan; autostart browser bisa dinyalakan lagi lewat Task Manager): $($r.name)"; continue }
+            $isRun = ($r.path -eq $saKey -and $r.name -match '^(GoogleChromeAutoLaunch_|MicrosoftEdgeAutoLaunch_)' -and ($r.kind -eq 'Binary' -or -not $r.exists))
             if (-not ($okReg.ContainsKey($r.path + '|' + $r.name) -or $isRun)) { $uf++; L "DITOLAK entri tak dikenal di snapshot: $($r.path)\$($r.name)"; continue }
             try {
                 $g = Get-Reg $r.path $r.name
@@ -215,7 +232,8 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
                     if (-not (Test-Path $r.path)) { New-Item -Path $r.path -Force | Out-Null }
                     $v = $r.value; if ($r.kind -eq 'Binary') { $v = [byte[]]@($r.value) }
                     New-ItemProperty -Path $r.path -Name $r.name -Value $v -PropertyType $r.kind -Force | Out-Null
-                    L "reg $($r.path)\$($r.name) = $($r.value) ($($r.kind))"
+                    $g2 = Get-Reg $r.path $r.name
+                    if ($g2.exists -and $g2.kind -eq $r.kind -and "$($g2.value)" -eq "$($r.value)") { L "reg $($r.path)\$($r.name) = $($r.value) ($($r.kind))" } else { $uf++; L "GAGAL verifikasi undo reg $($r.path)\$($r.name)" }
                 }
             } catch { $uf++; L "GAGAL undo reg $($r.path)\$($r.name): $($_.Exception.Message)" }
         }
@@ -227,11 +245,15 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
             catch { $uf++; L "GAGAL hapus kunci ${p}: $($_.Exception.Message)" }
         }
         foreach ($s in $u.svc) {
-            if (-not $okSvc.ContainsKey($s.name) -and $s.name -notmatch '^(ESRV_SVC|SystemUsageReportSvc_)') { $uf++; L "DITOLAK layanan tak dikenal: $($s.name)"; continue }
+            if (-not $okSvc.ContainsKey($s.name) -and $s.name -notmatch '^(ESRV_SVC|USER_ESRV_SVC|SystemUsageReportSvc_)') { $uf++; L "DITOLAK layanan tak dikenal: $($s.name)"; continue }
             try {
                 Set-Service -Name $s.name -StartupType $s.old
-                if ($s.status -eq 'Running' -and (Get-Service $s.name).Status -ne 'Running') { Start-Service $s.name }
-                L "layanan $($s.name) -> $($s.old)/$($s.status)"
+                $now = (Get-Service $s.name).Status
+                if ($s.status -eq 'Running' -and $now -ne 'Running') { Start-Service $s.name }
+                if ($s.status -eq 'Stopped' -and $now -eq 'Running') { Stop-Service $s.name -ErrorAction SilentlyContinue }
+                $g = Get-Service $s.name
+                if ([string]$g.StartType -eq $s.old -and [string]$g.Status -eq $s.status) { L "layanan $($s.name) -> $($s.old)/$($s.status)" }
+                else { L "layanan $($s.name) -> $($g.StartType)/$($g.Status) (snapshot $($s.old)/$($s.status); status bisa berubah sendiri oleh trigger)" }
             } catch { $uf++; L "GAGAL undo layanan $($s.name): $($_.Exception.Message)" }
         }
         foreach ($t in @($u.tasks)) {
@@ -312,9 +334,12 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
         if ($rank[$cur] -eq $rank[$want]) { L "layanan $k sudah $want"; continue }
         if ($rank[$cur] -lt $rank[$want]) { L "layanan $k sudah $cur (lebih ketat; tidak dilonggarkan ke $want)"; continue }
         try {
-            if ($want -eq 'Disabled') { Stop-Service $k -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue }
+            if ($want -eq 'Disabled') { Stop-Service $k -ErrorAction SilentlyContinue -WarningAction SilentlyContinue }   # tanpa -Force: layanan dependen tidak ikut dihentikan
             Set-Service -Name $k -StartupType $want
-            if ([string](Get-Service $k).StartType -eq $want) { L "layanan $k $cur -> $want" } else { $fail++; L "GAGAL verifikasi layanan $k" }
+            $g = Get-Service $k
+            if ([string]$g.StartType -ne $want) { $fail++; L "GAGAL verifikasi layanan $k" }
+            elseif ($want -eq 'Disabled' -and $g.Status -ne 'Stopped') { L "layanan $k $cur -> $want (masih $($g.Status) sampai restart)" }
+            else { L "layanan $k $cur -> $want" }
         } catch { $fail++; L "GAGAL layanan ${k}: $($_.Exception.Message)" }
     }
     foreach ($t in $tasks) {
@@ -332,10 +357,11 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset, [bool]$RemoveApps) {
         $left = @(Get-Process esrv -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*\Intel\SUR\*' }).Count
         if ($left -gt 0) { $fail++; L "GAGAL: $left proses esrv Intel SUR masih jalan" } elseif ($tasks.Count -gt 0) { L 'proses esrv Intel SUR tidak berjalan' }
     }
-    try {
+    if ($null -eq $snap.submit) { L 'Defender SubmitSamplesConsent: nilai awal tak terbaca -> tidak diubah (supaya Undo tetap bisa memulihkan)' }
+    else { try {
         Set-MpPreference -SubmitSamplesConsent 2
         if ((Get-Submit) -eq 2) { L 'Defender SubmitSamplesConsent = 2 (jangan kirim sampel; real-time tetap ON)' } else { $fail++; L 'GAGAL verifikasi Defender (Tamper Protection?)' }
-    } catch { $fail++; L "GAGAL Defender: $($_.Exception.Message)" }
+    } catch { $fail++; L "GAGAL Defender: $($_.Exception.Message)" } }
     if ($RemoveApps) { $fail += Remove-Apps $false }
     L ("APPLY selesai, gagal=$fail. Tanpa restart; sebagian efek (Start, Widgets, aplikasi latar) terasa sesudah sign out / restart.")
     if ($fail -gt 0) { return 1 } else { return 0 }

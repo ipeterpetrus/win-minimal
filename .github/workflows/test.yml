@@ -57,3 +57,16 @@ jobs:
           $after = @(Get-AppxPackage -AllUsers -Name Microsoft.WindowsFeedbackHub).Count + @(Get-AppxProvisionedPackage -Online | Where-Object DisplayName -eq Microsoft.WindowsFeedbackHub).Count
           if ($after -ne 0) { throw "Feedback Hub still present ($after)" }
           "OK removed (before=$before after=$after)"
+      - name: Planted junction at snapshot folder is refused (exit 2, target untouched)
+        shell: powershell
+        run: |
+          Rename-Item C:\ProgramData\winopt C:\ProgramData\winopt.bak
+          New-Item -ItemType Directory C:\decoy | Out-Null; 'x' | Set-Content C:\decoy\keep.txt
+          cmd /c mklink /J C:\ProgramData\winopt C:\decoy | Out-Null
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\win_minimal.ps1 -Mode Apply
+          $rc = $LASTEXITCODE
+          $decoyAcl = (Get-Acl C:\decoy).Access.Count; $files = @(Get-ChildItem C:\decoy).Count
+          cmd /c rmdir C:\ProgramData\winopt; Rename-Item C:\ProgramData\winopt.bak C:\ProgramData\winopt
+          if ($rc -ne 2) { throw "junction not refused (exit $rc)" }
+          if ($files -ne 1) { throw "decoy folder was written ($files files)" }
+          "OK junction refused (exit 2), decoy untouched (acl entries $decoyAcl)"
