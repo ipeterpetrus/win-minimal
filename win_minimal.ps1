@@ -6,7 +6,8 @@
                    kecuali env POWERSHELL_TELEMETRY_OPTOUT (tak berefek di PowerShell 5.1).
  -Preset Lean    : (default) Minimal + Widgets, Copilot, saran web di Start, aplikasi latar, CrossDeviceResume mati;
                    Edge/Chrome tanpa mode latar; autostart browser di HKCU\Run dihapus; layanan Intel SUR
-                   (ESRV_SVC*, SystemUsageReportSvc_*) dan DSAService Disabled; PresentMonSharedService Manual.
+                   (ESRV_SVC*, USER_ESRV_SVC*, SystemUsageReportSvc_* + tugas \USER_ESRV_SVC_*) dan DSAService
+                   Disabled; PresentMonSharedService Manual.
  Tidak disentuh: Defender real-time, Windows Update, firewall, OpenSSH, driver, Steam/game, BitLocker, boot,
                  Memory Integrity/VBS, System Restore (restore point dibuat hanya bila sudah aktif).
 
@@ -62,6 +63,7 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
             @('HKCU:\Software\Microsoft\Siuf\Rules', 'NumberOfSIUFInPeriod', 0)
         )
         $rem = , @('HKCU:\Software\Microsoft\Siuf\Rules', 'PeriodInNanoSeconds')   # koma unary: tetap 1 pasangan
+        $tasks = @()
         $svc = [ordered]@{ DiagTrack = 'Disabled'; WerSvc = 'Disabled'; CscService = 'Disabled'; SharedAccess = 'Disabled'; MapsBroker = 'Manual'; StorSvc = 'Manual' }
         if ($P -eq 'Lean') {
             $reg += @(
@@ -78,7 +80,8 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
                 @('HKLM:\SOFTWARE\Policies\Google\Chrome', 'BackgroundModeEnabled', 0),
                 @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\System', 'EnableActivityFeed', 0)
             )
-            foreach ($e in @(Get-Service -Name 'ESRV_SVC*', 'SystemUsageReportSvc_*' -ErrorAction SilentlyContinue)) { $svc[$e.Name] = 'Disabled' }
+            foreach ($e in @(Get-Service -Name 'ESRV_SVC*', 'USER_ESRV_SVC*', 'SystemUsageReportSvc_*' -ErrorAction SilentlyContinue)) { $svc[$e.Name] = 'Disabled' }
+            $tasks = @(Get-ScheduledTask -TaskPath '\' -ErrorAction Stop | Where-Object { $_.TaskName -like 'USER_ESRV_SVC_*' } | ForEach-Object { $_.TaskName })   # Intel SUR: menyalakan esrv di sesi user saat login
             $svc['DSAService'] = 'Disabled'
             $svc['PresentMonSharedService'] = 'Manual'
             $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
@@ -86,10 +89,10 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
                 foreach ($n in (Get-Item $runKey).GetValueNames()) { if ($n -match '^(GoogleChromeAutoLaunch_|MicrosoftEdgeAutoLaunch_)') { $rem += , @($runKey, $n) } }
             }
         }
-        return @{ reg = $reg; rem = $rem; svc = $svc }
+        return @{ reg = $reg; rem = $rem; svc = $svc; tasks = @($tasks) }
     }
     $lists = Get-Lists $Preset
-    $reg = $lists.reg; $regRemove = $lists.rem; $svc = $lists.svc
+    $reg = $lists.reg; $regRemove = $lists.rem; $svc = $lists.svc; $tasks = $lists.tasks
     $rank = @{ Automatic = 3; Manual = 2; Disabled = 1 }
 
     function Get-Reg($p, $n) {
@@ -104,6 +107,7 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
         foreach ($r in $reg) { $g = Get-Reg $r[0] $r[1]; L ("reg {0}\{1} sekarang={2} target={3}" -f $r[0], $r[1], $(if ($g.exists) { "$($g.value) ($($g.kind))" } else { '<tak ada>' }), $r[2]) }
         foreach ($r in $regRemove) { $g = Get-Reg $r[0] $r[1]; L ("reg {0}\{1} sekarang={2} target=<hapus>" -f $r[0], $r[1], $(if ($g.exists) { "$($g.value) ($($g.kind))" } else { '<tak ada>' })) }
         foreach ($k in $svc.Keys) { $s = Get-Service $k -ErrorAction SilentlyContinue; L ("layanan {0} sekarang={1} target={2}" -f $k, $(if ($s) { "$($s.StartType)/$($s.Status)" } else { '<tak ada>' }), $svc[$k]) }
+        foreach ($t in $tasks) { $st = (Get-ScheduledTask -TaskPath '\' -TaskName $t -ErrorAction SilentlyContinue).State; L "tugas \$t sekarang=$st target=Disabled" }
         L ("Defender SubmitSamplesConsent sekarang=" + (Get-Submit) + " target=2")
         return 0
     }
@@ -133,8 +137,10 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
                 }
             } catch { $uf++; L "GAGAL undo reg $($r.path)\$($r.name): $($_.Exception.Message)" }
         }
-        foreach ($p in @($u.newkeys)) {   # kunci yang DIBUAT Apply: hapus bila kosong
+        $okKey = @{}; foreach ($r in ($known.reg + $known.rem)) { $okKey[$r[0]] = 1 }
+        foreach ($p in @($u.newkeys)) {   # kunci yang DIBUAT Apply: hapus bila kosong (hanya kunci dari daftar skrip ini)
             if (-not $p) { continue }
+            if (-not $okKey.ContainsKey($p)) { $uf++; L "DITOLAK kunci tak dikenal di snapshot: $p"; continue }
             try { if ((Test-Path $p) -and -not (Get-Item $p).GetValueNames() -and -not (Get-ChildItem $p)) { Remove-Item $p; L "kunci $p dihapus (dibuat oleh Apply)" } }
             catch { $uf++; L "GAGAL hapus kunci ${p}: $($_.Exception.Message)" }
         }
@@ -146,6 +152,15 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
                 L "layanan $($s.name) -> $($s.old)/$($s.status)"
             } catch { $uf++; L "GAGAL undo layanan $($s.name): $($_.Exception.Message)" }
         }
+        foreach ($t in @($u.tasks)) {
+            if (-not $t -or $t.name -notlike 'USER_ESRV_SVC_*') { if ($t) { $uf++; L "DITOLAK tugas tak dikenal: $($t.name)" }; continue }
+            try {
+                if ($t.state -eq 'Disabled') { Disable-ScheduledTask -TaskPath '\' -TaskName $t.name | Out-Null } else { Enable-ScheduledTask -TaskPath '\' -TaskName $t.name | Out-Null }
+                $now = [string](Get-ScheduledTask -TaskPath '\' -TaskName $t.name).State
+                if (($t.state -eq 'Disabled') -eq ($now -eq 'Disabled')) { L "tugas \$($t.name) -> $now" } else { $uf++; L "GAGAL verifikasi tugas $($t.name): $now" }
+            }
+            catch { $uf++; L "GAGAL undo tugas $($t.name): $($_.Exception.Message)" }
+        }
         if ($null -ne $u.submit) {
             try { Set-MpPreference -SubmitSamplesConsent $u.submit; if ((Get-Submit) -eq $u.submit) { L "Defender SubmitSamplesConsent = $($u.submit)" } else { $uf++; L 'GAGAL verifikasi Defender' } }
             catch { $uf++; L "GAGAL undo Defender: $($_.Exception.Message)" }
@@ -156,13 +171,17 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
 
     # --- Apply ---
     L "APPLY mulai (preset $Preset)"
+    try {
+        $owners = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object { $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner; "$($o.Domain)\$($o.User)" }) | Select-Object -Unique
+        if ($owners.Count -gt 0 -and $owners -notcontains $id.Name) { L ("PERINGATAN: desktop yang login milik " + ($owners -join ', ') + ", tetapi skrip berjalan sebagai $($id.Name); setelan HKCU masuk ke akun $($id.Name). Jalankan dari akun desktop itu (Run as administrator).") }
+    } catch { }
     if (Test-Path $undof) {
         $old = Get-Content $undof -Raw | ConvertFrom-Json
         if ($old.sid -ne $id.User.Value) { L "DITOLAK: snapshot milik SID $($old.sid), bukan user ini"; return 2 }
-        $snap = @{ sid = $old.sid; user = $old.user; reg = @($old.reg); svc = @($old.svc); newkeys = @($old.newkeys | Where-Object { $_ }); submit = $old.submit }
+        $snap = @{ sid = $old.sid; user = $old.user; reg = @($old.reg); svc = @($old.svc); tasks = @($old.tasks | Where-Object { $_ }); newkeys = @($old.newkeys | Where-Object { $_ }); submit = $old.submit }
         L 'snapshot lama dipertahankan (nilai ASLI pertama); entri baru ditambahkan'
     } else {
-        $snap = @{ sid = $id.User.Value; user = $id.Name; reg = @(); svc = @(); newkeys = @(); submit = (Get-Submit) }
+        $snap = @{ sid = $id.User.Value; user = $id.Name; reg = @(); svc = @(); tasks = @(); newkeys = @(); submit = (Get-Submit) }
     }
     $seen = @{}; foreach ($e in $snap.reg) { $seen[$e.path + '|' + $e.name] = 1 }
     foreach ($r in ($reg + $regRemove)) {
@@ -172,6 +191,8 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
     }
     $seenS = @{}; foreach ($e in $snap.svc) { $seenS[$e.name] = 1 }
     foreach ($k in $svc.Keys) { if ($seenS.ContainsKey($k)) { continue }; $s = Get-Service $k -ErrorAction SilentlyContinue; if ($s) { $snap.svc += @{ name = $k; old = [string]$s.StartType; status = [string]$s.Status } } }
+    $seenT = @{}; foreach ($e in $snap.tasks) { $seenT[$e.name] = 1 }
+    foreach ($t in $tasks) { if (-not $seenT.ContainsKey($t)) { $snap.tasks += @{ name = $t; state = [string](Get-ScheduledTask -TaskPath '\' -TaskName $t).State } } }
     $tmp = "$undof.tmp"
     $snap | ConvertTo-Json -Depth 4 | Set-Content $tmp -Encoding UTF8
     $null = Get-Content $tmp -Raw | ConvertFrom-Json   # gagal parse = berhenti sebelum perubahan apa pun
@@ -212,6 +233,21 @@ function Invoke-WinMinimal([string]$Mode, [string]$Preset) {
             Set-Service -Name $k -StartupType $want
             if ([string](Get-Service $k).StartType -eq $want) { L "layanan $k $cur -> $want" } else { $fail++; L "GAGAL verifikasi layanan $k" }
         } catch { $fail++; L "GAGAL layanan ${k}: $($_.Exception.Message)" }
+    }
+    foreach ($t in $tasks) {
+        try {
+            $st = [string](Get-ScheduledTask -TaskPath '\' -TaskName $t).State
+            if ($st -eq 'Disabled') { L "tugas \$t sudah Disabled"; continue }
+            Stop-ScheduledTask -TaskPath '\' -TaskName $t -ErrorAction SilentlyContinue
+            Disable-ScheduledTask -TaskPath '\' -TaskName $t | Out-Null
+            if ([string](Get-ScheduledTask -TaskPath '\' -TaskName $t).State -eq 'Disabled') { L "tugas \$t $st -> Disabled" } else { $fail++; L "GAGAL verifikasi tugas $t" }
+        } catch { $fail++; L "GAGAL tugas ${t}: $($_.Exception.Message)" }
+    }
+    if ($Preset -eq 'Lean') {   # esrv yang sudah terlanjur jalan di sesi user (dari tugas Intel SUR)
+        Get-Process esrv -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*\Intel\SUR\*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+        $left = @(Get-Process esrv -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*\Intel\SUR\*' }).Count
+        if ($left -gt 0) { $fail++; L "GAGAL: $left proses esrv Intel SUR masih jalan" } elseif ($tasks.Count -gt 0) { L 'proses esrv Intel SUR tidak berjalan' }
     }
     try {
         Set-MpPreference -SubmitSamplesConsent 2
