@@ -13,7 +13,7 @@ dan OpenSSH, Wake-on-LAN, Windows Update, Defender real-time, serta Steam tetap 
    (berhenti bila beda), lalu menjalankan preset **Lean**:
 
 ```powershell
-$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/31fe589519cc5cf136c9b92162ad5037ec8ed2c6/win_minimal.ps1'; $h='878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f
+$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/2e38204844a32e14c17c1db4492f5e06524193f8/win_minimal.ps1'; $h='9F1F1CFE97C7E841A3CBC435C7320ED82E34E9605BE4FDC160FC2CAC90D9EBC3'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f
 ```
 
 3. Tunggu baris `APPLY selesai, gagal=0`, lalu **sign out atau restart** supaya efek Start/Widgets/aplikasi latar terasa.
@@ -23,7 +23,7 @@ $u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/31fe589519cc5cf13
 Di PowerShell (Admin), dengan **akun Windows yang sama** seperti saat Apply:
 
 ```powershell
-$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/31fe589519cc5cf136c9b92162ad5037ec8ed2c6/win_minimal.ps1'; $h='878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f -Mode Undo
+$u='https://raw.githubusercontent.com/ipeterpetrus/win-minimal/2e38204844a32e14c17c1db4492f5e06524193f8/win_minimal.ps1'; $h='9F1F1CFE97C7E841A3CBC435C7320ED82E34E9605BE4FDC160FC2CAC90D9EBC3'; $f="$env:TEMP\win_minimal.ps1"; irm $u -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { throw 'SHA-256 beda, dibatalkan' }; powershell -NoProfile -ExecutionPolicy Bypass -File $f -Mode Undo
 ```
 
 ## Pilihan lain
@@ -36,7 +36,7 @@ Ganti akhir baris di atas dengan salah satu:
 | `-Preset Minimal` | Hanya preset Minimal WinUtil (lebih sedikit perubahan) |
 | `-Mode Undo` | Kembalikan semua ke nilai sebelum Apply pertama |
 
-Singkat tanpa cek SHA-256 (kurang aman): `irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/31fe589519cc5cf136c9b92162ad5037ec8ed2c6/win_minimal.ps1 | iex`
+Singkat tanpa cek SHA-256 (kurang aman): `irm https://raw.githubusercontent.com/ipeterpetrus/win-minimal/2e38204844a32e14c17c1db4492f5e06524193f8/win_minimal.ps1 | iex`
 
 Exit code saat dijalankan sebagai berkas: `0` sukses, `1` ada yang gagal, `2` ditolak (bukan Admin / folder snapshot bukan milik Administrators / akun beda).
 Log: `C:\ProgramData\winopt\minimal_log.txt`.
@@ -48,13 +48,14 @@ iklan/saran aplikasi (ConsumerFeatures) mati, WPBT mati, pengaturan privasi/tele
 layanan DiagTrack, WerSvc, CscService, SharedAccess = Disabled; MapsBroker, StorSvc = Manual; Defender tidak mengirim sampel.
 
 **Preset Lean** (default) = Minimal + Widgets, Copilot, saran web/Bing di Start, aplikasi latar belakang, CrossDeviceResume dimatikan;
-Edge/Chrome tanpa mode latar; autostart Chrome/Edge di `HKCU\Run` dihapus; layanan Intel SUR (`ESRV_SVC*`, `SystemUsageReportSvc_*`)
+Edge/Chrome tanpa mode latar; autostart Chrome/Edge di `HKCU\Run` dihapus; layanan Intel SUR (`ESRV_SVC*`, `USER_ESRV_SVC*`, `SystemUsageReportSvc_*`) + tugas terjadwal `\USER_ESRV_SVC_*` (yang menyalakan esrv di sesi user)
 dan Intel Driver & Support Assistant (`DSAService`) Disabled; `PresentMonSharedService` Manual.
 
 ### Dampak yang perlu diketahui
 
 | Perubahan | Akibat |
 |---|---|
+| Tugas/layanan Intel SUR mati | Intel System Usage Report tidak mengumpulkan data pemakaian |
 | SharedAccess Disabled | **Mobile hotspot / Internet Connection Sharing** Windows tidak bisa dipakai |
 | CscService Disabled | **Offline Files** (berkas jaringan offline) tidak jalan |
 | WerSvc Disabled | Laporan crash Windows tidak dikirim/disimpan |
@@ -85,6 +86,7 @@ Contoh di PC uji (64 GB): *In use* 6,5 GB saat Steam terbuka dan sebelum skrip; 
 
 | Versi | Commit skrip | SHA-256 |
 |---|---|---|
+| v4 | `2e38204844a32e14c17c1db4492f5e06524193f8` | `9F1F1CFE97C7E841A3CBC435C7320ED82E34E9605BE4FDC160FC2CAC90D9EBC3` |
 | v3 | `31fe589519cc5cf136c9b92162ad5037ec8ed2c6` | `878B07FB633DCF8FE3BB32692763ECDD662F374EBB2B5EA7B02EE92C16D80408` |
 
 Tiap push diuji otomatis di GitHub Actions (Windows PowerShell 5.1, Windows Server): cek ASCII, parse, PSScriptAnalyzer, lalu Apply → Undo kedua preset harus kembali ke keadaan asli.
